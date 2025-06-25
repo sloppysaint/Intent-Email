@@ -24,13 +24,27 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async session({ session, token }) {
-      // Attach accessToken to session
       (session as any).accessToken = token.accessToken;
       return session;
     },
+    // Add redirect callback to handle post-logout redirect
+    async redirect({ url, baseUrl }) {
+      // If it's a signout, redirect to home page
+      if (url.startsWith("/api/auth/signout")) {
+        return baseUrl;
+      }
+      // Allows relative callback URLs
+      if (url.startsWith("/")) return `${baseUrl}${url}`;
+      // Allows callback URLs on the same origin
+      else if (new URL(url).origin === baseUrl) return url;
+      return baseUrl;
+    },
+  },
+  pages: {
+    signIn: "/",   // Home page as login
+    // Remove signOut page config as it can interfere with redirect callback
   },
 };
 
 const handler = NextAuth(authOptions);
-
 export { handler as GET, handler as POST };

@@ -18,6 +18,7 @@ export async function POST(req: NextRequest) {
   const prompt = `
 Given the following email content, do two things:
 1. Summarize the email in about 60 words.
+2. Reply as if you are talking to that person, you dont have to use the full name.
 2. Assign its intent/label as one of these: urgent, meeting, request, update, promotion, personal, social, info, primary, other.
 
 ONLY reply with a JSON object in this format, and nothing else:
@@ -49,10 +50,8 @@ ${text}
   });
 
   const data = await response.json();
-  console.log("Full OpenRouter API response:", JSON.stringify(data, null, 2));
   const content = data?.choices?.[0]?.message?.content || "";
-  console.log("OpenRouter Content:", content);
-
+  
   let summary = "";
   let intent = "";
   try {
