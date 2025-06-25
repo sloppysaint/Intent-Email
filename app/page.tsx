@@ -2,6 +2,7 @@
 import { useSession } from "next-auth/react";
 import SignInButton from "./components/SignInButton";
 import SignOutButton from "./components/SignOutButton";
+import EmailList from "./components/EmailList"; // Import EmailList
 
 export default function Home() {
   const { data: session, status } = useSession();
@@ -22,7 +23,7 @@ export default function Home() {
     <div className="flex flex-col items-center mt-24">
       <p>Signed in as {session.user?.email}</p>
       <SignOutButton />
-      {/* Next: Gmail inbox will be shown here */}
+      <EmailList />  {/* Show email snippets here */}
     </div>
   );
 }
