@@ -1,255 +1,219 @@
-"use client";
-import { useSession } from "next-auth/react";
-import { useEffect, useState } from "react";
-import { MailOpen, Loader2 } from "lucide-react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { MailOpen, Clock, Star, Archive, Trash2, Mail, MailOpen as MailOpenIcon, Zap } from "lucide-react";
+import { decodeHTML, extractSender } from "@/utils/emailUtils";
+import { getTagColor, getIntentIcon } from "@/utils/intentUtils";
 
+// Accepts currentAccount as prop!
+export function EmailList({ emails, loading, currentAccount, onAction }) {
+  const [acting, setActing] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-type Email = {
-  id: string;
-  from: string;
-  subject: string;
-  summary: string;
-  intent: string;
-};
-
-function decodeHTML(str: string) {
-  if (!str) return "";
-  const txt = document.createElement("textarea");
-  txt.innerHTML = str;
-  return txt.value;
-}
-
-function extractSender(from: string) {
-  const match = from.match(/^(.*?)(?:\s*<(.+?)>)?$/);
-  return match ? (match[1] || match[2] || from) : from;
-}
-
-function decodeBase64(str: string): string {
-  if (!str) return "";
-  const decodedStr = atob(str.replace(/-/g, "+").replace(/_/g, "/"));
-  try {
-    return decodeURIComponent(escape(decodedStr));
-  } catch {
-    return decodedStr;
-  }
-}
-
-function getEmailBody(payload: any): string {
-  if (!payload) return "";
-  if (payload.parts && payload.parts.length > 0) {
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/plain" && part.body?.data) {
-        return decodeBase64(part.body.data);
-      }
-      if (part.mimeType === "text/html" && part.body?.data) {
-        // fallback: basic HTML strip
-        return decodeBase64(part.body.data).replace(/<[^>]+>/g, ' ');
-      }
-      if (part.parts) {
-        const nested = getEmailBody(part);
-        if (nested) return nested;
-      }
-    }
-  }
-  if (payload.body && payload.body.data) {
-    return decodeBase64(payload.body.data);
-  }
-  return "";
-}
-
-function getTagColor(intent: string) {
-  switch (intent?.toLowerCase()) {
-    case "urgent": return "bg-red-700 text-red-200";
-    case "meeting": return "bg-blue-700 text-blue-200";
-    case "request": return "bg-yellow-700 text-yellow-200";
-    case "promotion": return "bg-pink-700 text-pink-200";
-    case "social": return "bg-green-700 text-green-200";
-    case "update": return "bg-purple-700 text-purple-200";
-    case "personal": return "bg-teal-700 text-teal-200";
-    case "primary": return "bg-sky-700 text-sky-200";
-    case "info": return "bg-gray-700 text-gray-200";
-    default: return "bg-zinc-700 text-white";
-  }
-}
-
-const INTENT_OPTIONS = [
-  "urgent",
-  "meeting",
-  "request",
-  "update",
-  "promotion",
-  "social",
-  "personal",
-  "primary",
-  "info",
-  "other"
-];
-
-export default function EmailList() {
-  const { data: session } = useSession();
-  const [emails, setEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedIntents, setSelectedIntents] = useState<string[]>([]);
-  const [search, setSearch] = useState("");
-
-  useEffect(() => {
-    if (!session || !(session as any).accessToken) return;
-
-    setLoading(true);
-
-    fetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10",
-      {
-        headers: {
-          Authorization: `Bearer ${(session as any).accessToken}`,
-        },
-      }
-    )
-      .then((res) => res.json())
-      .then(async (data) => {
-        if (!data.messages) return setEmails([]);
-        const results: Email[] = [];
-        for (const msg of data.messages) {
-          const res = await fetch(
-            `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${(session as any).accessToken}`,
-              },
-            }
-          );
-          const msgData = await res.json();
-          const headers = msgData.payload?.headers || [];
-          const from = headers.find((h: any) => h.name === "From")?.value || "Unknown";
-          const subject = headers.find((h: any) => h.name === "Subject")?.value || "No Subject";
-          const body = getEmailBody(msgData.payload);
-
-          // Fetch summary & intent from OpenRouter API using the full body
-          let summary = "";
-          let intent = "other";
-          try {
-            const aiRes = await fetch("/api/openrouter-summarize", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: body }),
-            });
-
-            const aiData = await aiRes.json();
-            summary = aiData.summary || "";
-            intent = aiData.intent?.toLowerCase() || "other";
-          } catch {
-            summary = "";
-            intent = "other";
-          }
-
-          results.push({
-            id: msg.id,
-            from,
-            subject,
-            summary,
-            intent,
-          });
-        }
-        setEmails(results);
-      })
-      .finally(() => setLoading(false));
-  }, [session]);
-
-  // FILTERING: search + multi-intent
-  const filteredEmails = emails.filter(email => {
-    // Multi-intent filter
-    const intentPass = selectedIntents.length === 0 || selectedIntents.includes(email.intent);
-    // Search filter (in subject, summary, from)
-    const s = search.toLowerCase();
-    const searchPass = !s ||
-      decodeHTML(email.subject).toLowerCase().includes(s) ||
-      (email.summary || "").toLowerCase().includes(s) ||
-      (email.from || "").toLowerCase().includes(s);
-
-    return intentPass && searchPass;
-  });
-
-  // UI: multi-checkbox for intents
-  const toggleIntent = (intent: string) => {
-    setSelectedIntents(selected => 
-      selected.includes(intent)
-        ? selected.filter(i => i !== intent)
-        : [...selected, intent]
+  if (!loading && emails.length === 0)
+    return (
+      <div className="text-center py-12">
+        <MailOpen className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+        <p className="text-gray-400 text-lg mb-2">No emails found</p>
+        <p className="text-gray-500 text-sm">Try adjusting your search or filter criteria</p>
+      </div>
     );
+
+  // Helper to send API requests for Gmail actions
+  const handleGmailAction = async (emailId: string, action: string) => {
+    if (!currentAccount?._id) {
+      setError("No account selected");
+      return;
+    }
+
+    const actionId = `${emailId}-${action}`;
+    setActing(actionId);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/gmail-action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          accountId: currentAccount._id, 
+          emailId, 
+          action 
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+
+      console.log(`Successfully executed ${action} on email ${emailId}:`, data);
+      
+      // Let parent refresh emails or update UI as needed
+      if (onAction) {
+        onAction(action, emailId);
+      }
+
+      // Show success feedback
+      setError(null);
+
+    } catch (err) {
+      console.error(`Failed to ${action} email:`, err);
+      const errorMessage = err instanceof Error ? err.message : "Action failed";
+      setError(`Failed to ${action}: ${errorMessage}`);
+    } finally {
+      setActing(null);
+    }
   };
 
-  if (!session) return null;
+  // Show AI reply modal (event-based, see earlier answer)
+  const handleAIDraft = (email: any) => {
+    window.dispatchEvent(new CustomEvent("showAIModal", { detail: email }));
+  };
 
   return (
-    <div className="w-full max-w-3xl mx-auto">
-      <h2 className="text-3xl font-black mb-7 text-white text-center drop-shadow-lg tracking-tight">
-        <MailOpen className="inline mr-2 text-cyan-400" size={36} />
-        Your Recent Emails
-      </h2>
-      {/* Multi-intent checkboxes and search bar row */}
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-        <div className="flex flex-wrap gap-2 justify-center">
-          {INTENT_OPTIONS.map(opt => (
-            <label key={opt} className="flex items-center gap-1 text-xs font-semibold cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="accent-cyan-500"
-                checked={selectedIntents.includes(opt)}
-                onChange={() => toggleIntent(opt)}
-              />
-              <span className={`px-2 py-1 rounded-full shadow font-bold ${getTagColor(opt)}`}>
-                {opt.charAt(0).toUpperCase() + opt.slice(1)}
-              </span>
-            </label>
-          ))}
-        </div>
-        <input
-          type="text"
-          className="px-3 py-2 rounded-xl border border-gray-600 bg-gray-900 text-white outline-none w-64 shadow"
-          placeholder="Search emails (sender, subject, summary)..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-      </div>
-      {loading && (
-        <div className="text-white text-center my-8 animate-pulse text-lg">
-          <Loader2 className="inline mr-2 animate-spin text-cyan-400" />Loading...
-        </div>
+    <div className="space-y-4">
+      {/* Error Display */}
+      {error && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-red-300 text-sm"
+        >
+          {error}
+          <button 
+            onClick={() => setError(null)}
+            className="ml-2 text-red-400 hover:text-red-300"
+          >
+            ×
+          </button>
+        </motion.div>
       )}
-      <ul className="space-y-5">
-        <AnimatePresence>
-          {filteredEmails.map((email) => (
-            <motion.li
+
+      <AnimatePresence mode="popLayout">
+        {emails.map((email, index) => {
+          const isActing = acting?.startsWith(email.id);
+          
+          return (
+            <motion.div
               key={email.id}
               layout
-              initial={{ opacity: 0, y: 40, scale: 0.95 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 40, scale: 0.95 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              className="p-6 border border-gray-700 rounded-2xl bg-gradient-to-br from-[#1a1d2e]/80 to-[#23243a]/90 text-white shadow-xl hover:scale-[1.015] transition-all duration-150"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{
+                type: "spring",
+                stiffness: 400,
+                damping: 30,
+                delay: index * 0.05,
+              }}
+              whileHover={{ scale: 1.005, y: -2 }}
+              className={`group p-5 bg-gray-700/30 backdrop-blur-sm border border-gray-600/30 rounded-xl hover:bg-gray-700/50 hover:border-gray-500/50 transition-all duration-200 cursor-pointer ${
+                isActing ? "opacity-50 cursor-not-allowed" : ""
+              }`}
             >
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-semibold drop-shadow">
-                    {decodeHTML(email.subject)}
-                  </span>
-                  <span className={`text-xs font-bold px-2 py-1 rounded-full shadow ${getTagColor(email.intent)}`}>
-                    {email.intent}
-                  </span>
+              <div className="flex items-start gap-4">
+                <div className="flex-shrink-0">
+                  <div className="w-10 h-10 bg-gradient-to-br from-gray-600 to-gray-700 rounded-full flex items-center justify-center text-white font-medium">
+                    {extractSender(email.from)[0]?.toUpperCase() || "?"}
+                  </div>
                 </div>
-                <span className="text-sm text-teal-300 italic">{extractSender(email.from)}</span>
-                <span className="block mt-2 text-cyan-200 font-medium">
-                  <span className="text-cyan-400 font-semibold">AI Summary:</span> {email.summary || "No summary generated."}
-                </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-3 mb-2">
+                    <h3 className="font-semibold text-white truncate group-hover:text-cyan-400 transition-colors">
+                      {decodeHTML(email.subject)}
+                    </h3>
+                    <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getTagColor(email.intent)}`}>
+                      {getIntentIcon(email.intent)}
+                      {email.intent}
+                    </div>
+                    {email.unread && (
+                      <div className="w-2 h-2 bg-cyan-400 rounded-full"></div>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-400 mb-2">{extractSender(email.from)}</p>
+                  <div className="bg-gray-600/20 border border-gray-600/30 rounded-lg p-3 mb-3">
+                    <p className="text-sm text-gray-300 leading-relaxed">
+                      <span className="text-cyan-400 font-medium">AI Summary: </span>
+                      {email.summary || "No summary generated."}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <div className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" />
+                      {email.date ? new Date(email.date).toLocaleDateString() : "Recently"}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {/* Mark as (un)read */}
+                      <button
+                        title={email.unread ? "Mark as read" : "Mark as unread"}
+                        disabled={isActing}
+                        className={`hover:text-cyan-400 transition-colors ${
+                          acting === `${email.id}-${email.unread ? "markRead" : "markUnread"}` 
+                            ? "animate-pulse text-cyan-400" 
+                            : ""
+                        }`}
+                        onClick={() =>
+                          handleGmailAction(email.id, email.unread ? "markRead" : "markUnread")
+                        }
+                      >
+                        {email.unread ? <MailOpenIcon className="w-3 h-3" /> : <Mail className="w-3 h-3" />}
+                      </button>
+                      
+                      {/* Star/Unstar */}
+                      <button
+                        title={email.starred ? "Unstar" : "Star"}
+                        disabled={isActing}
+                        className={`hover:text-yellow-400 transition-colors ${
+                          acting === `${email.id}-${email.starred ? "unstar" : "star"}` 
+                            ? "animate-pulse text-yellow-400" 
+                            : ""
+                        } ${email.starred ? "text-yellow-400" : ""}`}
+                        onClick={() => handleGmailAction(email.id, email.starred ? "unstar" : "star")}
+                      >
+                        <Star className={`w-3 h-3 ${email.starred ? "fill-current" : ""}`} />
+                      </button>
+                      
+                      {/* Archive */}
+                      <button
+                        title="Archive"
+                        disabled={isActing}
+                        className={`hover:text-cyan-400 transition-colors ${
+                          acting === `${email.id}-archive` ? "animate-pulse text-cyan-400" : ""
+                        }`}
+                        onClick={() => handleGmailAction(email.id, "archive")}
+                      >
+                        <Archive className="w-3 h-3" />
+                      </button>
+                      
+                      {/* Delete */}
+                      <button
+                        title="Delete"
+                        disabled={isActing}
+                        className={`hover:text-red-400 transition-colors ${
+                          acting === `${email.id}-delete` ? "animate-pulse text-red-400" : ""
+                        }`}
+                        onClick={() => handleGmailAction(email.id, "delete")}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                      
+                      {/* AI Draft Reply */}
+                      <button
+                        title="AI Draft Reply"
+                        disabled={isActing}
+                        className="hover:text-cyan-300 transition-colors"
+                        onClick={() => handleAIDraft(email)}
+                      >
+                        <Zap className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </motion.li>
-          ))}
-        </AnimatePresence>
-      </ul>
-      {!loading && filteredEmails.length === 0 && (
-        <div className="text-gray-400 text-center mt-8">No emails to display for these filters.</div>
-      )}
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }
