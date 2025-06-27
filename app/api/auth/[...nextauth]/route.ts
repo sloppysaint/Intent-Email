@@ -105,8 +105,6 @@ export const authOptions: NextAuthOptions = {
           token.refreshToken = account.refresh_token;
           token.accessTokenExpires = savedAccount.accessTokenExpires;
           token.processed = true;
-
-          console.log(`Account updated/created for ${userEmail}`);
           
         } catch (error) {
           console.error("Error saving account:", error);
@@ -116,7 +114,6 @@ export const authOptions: NextAuthOptions = {
 
       // Check if token is expired and needs refresh
       if (token.accessTokenExpires && Date.now() > token.accessTokenExpires - 5 * 60 * 1000) {
-        console.log("Token will expire soon, flagging for refresh");
         token.shouldRefresh = true;
       }
 
@@ -151,7 +148,6 @@ export const authOptions: NextAuthOptions = {
   },
   events: {
     async signIn({ account, user, isNewUser }) {
-      console.log(`Sign in event: ${user.email}, isNewUser: ${isNewUser}`);
       
       // Only set the flag for genuinely new accounts
       // This prevents the flag from being set on every sign-in
@@ -159,12 +155,10 @@ export const authOptions: NextAuthOptions = {
         // Note: This localStorage approach won't work server-side
         // You might want to use a different mechanism like a database flag
         // or handle this in the frontend after successful authentication
-        console.log("New account sign-in detected");
       }
     },
     async session({ session, token }) {
       // Log session events for debugging
-      console.log("Session event triggered");
     }
   },
   debug: process.env.NODE_ENV === "development", // Enable debug logs in development

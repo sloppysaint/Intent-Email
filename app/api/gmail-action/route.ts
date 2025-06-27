@@ -101,7 +101,6 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await gmailRes.json();
-    console.log(`Successfully executed ${action} on email ${emailId}`);
     
     return NextResponse.json({ 
       success: true, 

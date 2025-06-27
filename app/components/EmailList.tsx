@@ -46,7 +46,6 @@ export function EmailList({ emails, loading, currentAccount, onAction }) {
         throw new Error(data.error || `HTTP ${response.status}`);
       }
 
-      console.log(`Successfully executed ${action} on email ${emailId}:`, data);
       
       // Let parent refresh emails or update UI as needed
       if (onAction) {

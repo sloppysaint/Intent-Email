@@ -33,7 +33,7 @@ export default function Home() {
       </div>
 
       {/* Header Content */}
-      <div className="flex flex-col items-center mb-16 z-10 animate-fade-in-up">
+      <div className="flex flex-col items-center mb-16 z-10 animate-fade-in-up mt-5">
         {/* Logo/Badge */}
         <div className="mb-6 relative group">
           <div className="absolute inset-0 bg-gradient-to-r from-cyan-400 to-indigo-500 rounded-full blur opacity-50 group-hover:opacity-75 transition-opacity duration-300 animate-pulse" />

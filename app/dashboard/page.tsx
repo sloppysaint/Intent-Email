@@ -134,14 +134,12 @@ export default function DashboardPage() {
     if (!currentAccount) return;
 
     if (isFetchingRef.current) {
-      console.log("Fetch already in progress, skipping...");
       return;
     }
 
     // <<< CHANGE: use ref for fetch time so the function doesn't change on every render
     const now = Date.now();
     if (!force && (now - lastFetchTimeRef.current) < FETCH_COOLDOWN) {
-      console.log("Fetch cooldown active, skipping...");
       return;
     }
 
