@@ -44,13 +44,14 @@ Respond ONLY with valid JSON in this exact format:
 EMAIL CONTENT:
 ${text}`;
 
-  const model = "google/gemini-flash-1.5";
+  // === Use the Cypher Alpha Free model here ===
+  const model = "openrouter/cypher-alpha:free";
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      "HTTP-Referer": "http://localhost:3000/", // Update to your prod domain if needed
+      "HTTP-Referer": "http://localhost:3000/", // Update for production if needed
       "X-Title": "EmailIntentSummarizer"
     },
     body: JSON.stringify({
@@ -60,30 +61,46 @@ ${text}`;
         { role: "user", content: prompt },
       ],
       max_tokens: 400,
-      temperature: 0.1 // Lower temperature for more consistent categorization
+      temperature: 0.1
     })
   });
 
   const data = await response.json();
-  const content = data?.choices?.[0]?.message?.content || "";
- 
+
+  // --- Robustly check for valid content ---
+  let content = "";
+  if (
+    data &&
+    Array.isArray(data.choices) &&
+    data.choices[0] &&
+    data.choices[0].message &&
+    typeof data.choices[0].message.content === "string"
+  ) {
+    content = data.choices[0].message.content.trim();
+  } else {
+    console.error("OpenRouter returned invalid or empty choices:", data);
+    return NextResponse.json({ summary: "", intent: "", error: "OpenRouter returned no completions." }, { status: 200 });
+  }
+
   let summary = "";
   let intent = "";
   try {
-    // More robust JSON extraction
-    const jsonMatch = content.match(/\{[^}]*"summary"[^}]*"intent"[^}]*\}/);
+    if (!content) throw new Error("No content returned from OpenRouter");
+
+    // Try to extract JSON from the response string
+    const jsonMatch = content.match(/\{[\s\S]*?"summary"[\s\S]*?"intent"[\s\S]*?\}/);
     if (jsonMatch) {
       const obj = JSON.parse(jsonMatch[0]);
       summary = obj.summary || "";
       intent = obj.intent || "";
     } else {
-      // Fallback: try to parse the entire content as JSON
+      // Fallback: Try to parse the whole content as JSON (sometimes works)
       const obj = JSON.parse(content);
       summary = obj.summary || "";
       intent = obj.intent || "";
     }
   } catch (e) {
-    console.error("JSON parsing error:", e);
+    console.error("JSON parsing error:", e, "Content was:", content);
     summary = "";
     intent = "";
   }
