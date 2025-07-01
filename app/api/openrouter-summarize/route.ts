@@ -51,7 +51,7 @@ ${text}`;
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${apiKey}`,
-      "HTTP-Referer": "http://localhost:3000/", // Update for production if needed
+      "HTTP-Referer": "https://intent-aware.vercel.app", // Update for production if needed
       "X-Title": "EmailIntentSummarizer"
     },
     body: JSON.stringify({
