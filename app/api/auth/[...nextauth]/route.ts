@@ -110,6 +110,33 @@ export const authOptions: NextAuthOptions = {
           console.error("Error saving account:", error);
           token.error = "account_save_error";
         }
+      } else if (!token.userId && token.sub) {
+        // For existing sessions without userId, try to get it from the database
+        try {
+          await connectToDatabase();
+          // Try to find an account with this email or sub
+          const existingAccount = await AccountModel.findOne({ 
+            $or: [
+              { email: token.email },
+              { userId: token.sub }
+            ]
+          });
+          
+          if (existingAccount) {
+            token.userId = existingAccount.userId;
+            token.email = existingAccount.email;
+          } else if (token.sub) {
+            // Use sub as userId if no account found
+            token.userId = token.sub;
+          }
+        } catch (error) {
+          console.error("Error loading userId for existing session:", error);
+          // Fallback: use sub as userId if database connection fails
+          if (token.sub && !token.userId) {
+            console.warn("Using token.sub as fallback userId due to DB connection error");
+            token.userId = token.sub;
+          }
+        }
       }
 
       // Check if token is expired and needs refresh

@@ -9,8 +9,18 @@ import { authOptions } from "../auth/[...nextauth]/route";
 export async function GET(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    if (!session?.userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    
+    if (!session) {
+      console.error("No session found in GET /api/accounts");
+      return NextResponse.json({ error: "Unauthorized - No session" }, { status: 401 });
+    }
+    
+    if (!session.userId) {
+      console.error("Session found but no userId:", { 
+        sessionKeys: Object.keys(session),
+        email: (session as any).email 
+      });
+      return NextResponse.json({ error: "Unauthorized - No userId in session" }, { status: 401 });
     }
 
     await connectToDatabase();
@@ -19,11 +29,13 @@ export async function GET(req: NextRequest) {
       userId: session.userId 
     }).sort({ updatedAt: -1 });
     
+    console.log(`Found ${accounts.length} accounts for userId: ${session.userId}`);
+    
     return NextResponse.json(accounts);
   } catch (error) {
     console.error("Error fetching accounts:", error);
     return NextResponse.json(
-      { error: "Failed to fetch accounts" },
+      { error: "Failed to fetch accounts", details: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
     );
   }

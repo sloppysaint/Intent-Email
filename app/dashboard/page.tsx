@@ -14,6 +14,15 @@ import { EmailList } from "../components/EmailList";
 import IntentFilterDropdown from "../components/IntentFilterDropdown";
 import { getEmailBody } from "@/utils/emailUtils";
 
+// Extend Session type to include custom properties
+interface ExtendedSession {
+  userId?: string;
+  email?: string;
+  accessToken?: string;
+  error?: string;
+  shouldRefresh?: boolean;
+}
+
 interface Account {
   _id: string;
   userId: string;
@@ -40,6 +49,7 @@ interface Email {
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
+  const extendedSession = session as ExtendedSession | null;
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [emails, setEmails] = useState<Email[]>([]);
@@ -59,13 +69,32 @@ export default function DashboardPage() {
 
   // Loads all linked accounts
   const loadAccounts = async () => {
-    if (!session?.userId) return;
+    if (!extendedSession) {
+      console.log("No session available for loadAccounts");
+      return;
+    }
+    
+    if (!extendedSession.userId) {
+      console.error("Session exists but no userId:", { 
+        sessionKeys: Object.keys(extendedSession),
+        email: extendedSession.email 
+      });
+      return;
+    }
+    
     try {
-      const res = await fetch(`/api/accounts?userId=${session.userId}`);
-      if (res.ok) {
-        const list: Account[] = await res.json();
-        setAccounts(list);
+      console.log("Loading accounts for userId:", extendedSession.userId);
+      const res = await fetch(`/api/accounts`);
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Failed to load accounts:", res.status, errorData);
+        return;
       }
+      
+      const list: Account[] = await res.json();
+      console.log(`Loaded ${list.length} accounts`);
+      setAccounts(list);
     } catch (error) {
       console.error("Failed to load accounts:", error);
     }
@@ -73,13 +102,14 @@ export default function DashboardPage() {
 
   // useEffect 1: Loads accounts when session changes
   useEffect(() => {
-    if (session) {
+    if (extendedSession && extendedSession.userId) {
       loadAccounts();
     } else {
       setAccounts([]);
+      setCurrentAccount(null);
     }
     // Don't set currentAccount here!
-  }, [session]);
+  }, [extendedSession?.userId]); // Only depend on userId to avoid unnecessary re-renders
 
   // useEffect 2: Keeps currentAccount in sync with accounts
   useEffect(() => {
@@ -121,8 +151,32 @@ export default function DashboardPage() {
           setCurrentAccount(updatedAccount);
         }
         return data.accessToken;
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        
+        // Handle invalid_grant - refresh token revoked
+        if (errorData.error === "invalid_grant" || errorData.requiresReauth) {
+          console.warn("Refresh token invalid for account:", acc.email);
+          console.warn("User needs to re-authenticate. Removing account from list.");
+          
+          // Remove the account that needs re-authentication
+          const remaining = accounts.filter((a) => a._id !== acc._id);
+          setAccounts(remaining);
+          
+          // If this was the current account, clear it
+          if (currentAccount?._id === acc._id) {
+            setCurrentAccount(null);
+          }
+          
+          // Show a message to the user (you could use a toast notification here)
+          alert(`Your Google account (${acc.email}) needs to be re-authenticated. Please add it again.`);
+          
+          return null;
+        }
+        
+        console.error("Token refresh failed:", errorData);
+        return null;
       }
-      return null;
     } catch (error) {
       console.error("Token refresh failed:", error);
       return null;
@@ -147,24 +201,43 @@ export default function DashboardPage() {
     setLoading(true);
 
     try {
-      const token = await getValidAccessToken(currentAccount);
+      let token = await getValidAccessToken(currentAccount);
       if (!token) {
         console.error("No valid access token available");
         setEmails([]);
         return;
       }
 
-      const res = await fetch(
+      let res = await fetch(
         "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=15",
         {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
 
-      if (!res.ok) {
-        throw new Error(`Gmail API error: ${res.status}`);
+      // Handle 401 Unauthorized - token might be invalid, try refreshing
+      if (res.status === 401) {
+        console.warn("Gmail API returned 401 - attempting token refresh");
+        const newToken = await getValidAccessToken(currentAccount);
+        if (newToken && newToken !== token) {
+          token = newToken; // Update token for subsequent requests
+          // Retry with new token
+          res = await fetch(
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=15",
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+        }
       }
 
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        console.error(`Gmail API error: ${res.status}`, errorText);
+        setEmails([]);
+        return;
+      }
+      
       const data = await res.json();
       if (!data.messages) {
         setEmails([]);
@@ -194,16 +267,29 @@ export default function DashboardPage() {
           let intent = "other";
 
           try {
-            const ai = await fetch("/api/openrouter-summarize", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ text: body }),
-            });
+            if (!body || body.trim().length === 0) {
+              console.warn("Skipping AI summarization - empty email body");
+              summary = "No content available";
+              intent = "other";
+            } else {
+              const ai = await fetch("/api/openrouter-summarize", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: body }),
+              });
 
-            if (ai.ok) {
-              const aij = await ai.json();
-              summary = aij.summary || "";
-              intent = aij.intent?.toLowerCase() || "other";
+              if (ai.ok) {
+                const aij = await ai.json();
+                summary = aij.summary || "";
+                intent = aij.intent?.toLowerCase() || "other";
+                
+                if (aij.error) {
+                  console.warn("OpenRouter API returned error:", aij.error);
+                }
+              } else {
+                const errorData = await ai.json().catch(() => ({ error: "Unknown error" }));
+                console.error("AI summarization API error:", ai.status, errorData);
+              }
             }
           } catch (aiError) {
             console.error("AI summarization failed:", aiError);
@@ -294,16 +380,19 @@ export default function DashboardPage() {
   };
 
   const handleRemoveAccount = async (email: string) => {
-    if (!session?.userId) return;
+    if (!extendedSession?.userId) return;
 
     try {
-      const res = await fetch(`/api/accounts?userId=${session.userId}&email=${email}`, {
+      const res = await fetch(`/api/accounts?email=${email}`, {
         method: "DELETE",
       });
 
       if (res.ok) {
         const remaining = accounts.filter((a) => a.email !== email);
         setAccounts(remaining);
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Failed to remove account:", res.status, errorData);
       }
     } catch (error) {
       console.error("Failed to remove account:", error);
@@ -323,7 +412,7 @@ export default function DashboardPage() {
 
     window.addEventListener("storage", handleAccountAdded);
     return () => window.removeEventListener("storage", handleAccountAdded);
-  }, [session]);
+  }, [extendedSession]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -479,7 +568,7 @@ export default function DashboardPage() {
         <div className="max-w-7xl mx-auto px-6 py-8">
           <div className="text-center text-gray-400 text-sm">
             <p>&copy; {new Date().getFullYear()} Inbox Insight AI. All rights reserved.</p>
-            <p className="mt-2">Built with Next.js, OpenRouter, and Google APIs</p>
+            <p className="mt-2">Built with Next.js, OpenRouter and Google APIs</p>
           </div>
         </div>
       </footer>

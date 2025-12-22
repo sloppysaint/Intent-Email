@@ -59,7 +59,31 @@ export async function POST(req: NextRequest) {
     if (!response.ok) {
       const errorData = await response.json();
       console.error("Token refresh failed:", errorData);
-      return NextResponse.json({ error: "Token refresh failed" }, { status: 400 });
+      
+      // Handle invalid_grant error (refresh token revoked or expired)
+      if (errorData.error === "invalid_grant") {
+        // Mark the account as needing re-authentication
+        await AccountModel.findOneAndUpdate(
+          { _id: accountId },
+          {
+            $set: {
+              refreshToken: null, // Clear invalid refresh token
+              updatedAt: new Date(),
+            }
+          }
+        );
+        
+        return NextResponse.json({ 
+          error: "invalid_grant",
+          message: "Refresh token has been revoked or expired. Please re-authenticate.",
+          requiresReauth: true
+        }, { status: 401 });
+      }
+      
+      return NextResponse.json({ 
+        error: errorData.error || "Token refresh failed",
+        message: errorData.error_description || "Failed to refresh token"
+      }, { status: 400 });
     }
 
     const tokens = await response.json();

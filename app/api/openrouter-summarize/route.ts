@@ -13,7 +13,15 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: "No OpenRouter API key" }, { status: 500 });
+  if (!apiKey) {
+    console.error("❌ OPENROUTER_API_KEY is not set in environment variables");
+    return NextResponse.json({ 
+      error: "No OpenRouter API key", 
+      details: "Please set OPENROUTER_API_KEY in your .env.local file" 
+    }, { status: 500 });
+  }
+  
+  console.log("✅ OpenRouter API key found (length:", apiKey.length, ")");
 
   const prompt = `
 You are an email classification assistant. Analyze the following email and provide:
@@ -44,42 +52,145 @@ Respond ONLY with valid JSON in this exact format:
 EMAIL CONTENT:
 ${text}`;
 
-  // === Use the Cypher Alpha Free model here ===
-  const model = "openrouter/cypher-alpha:free";
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-      "HTTP-Referer": "https://intent-aware.vercel.app", // Update for production if needed
-      "X-Title": "EmailIntentSummarizer"
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: "system", content: "You are an expert email classification assistant. Always respond with valid JSON only." },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 400,
-      temperature: 0.1
-    })
-  });
+  // === Use a free model - try multiple options if one fails ===
+  // Available free models (in order of preference):
+  // 1. meta-llama/llama-3.2-3b-instruct:free - Fast and reliable
+  // 2. google/gemini-flash-1.5:free - Good alternative
+  // 3. microsoft/phi-3-mini-128k-instruct:free - Backup option
+  const model = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.2-3b-instruct:free";
+  
+  console.log("📤 Sending request to OpenRouter API...");
+  console.log("Model:", model);
+  console.log("Text length:", text.length);
+  
+  let response;
+  try {
+    response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+        "HTTP-Referer": process.env.NEXTAUTH_URL || "http://localhost:3000",
+        "X-Title": "EmailIntentSummarizer"
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: "You are an expert email classification assistant. Always respond with valid JSON only." },
+          { role: "user", content: prompt },
+        ],
+        max_tokens: 400,
+        temperature: 0.1
+      })
+    });
+  } catch (fetchError) {
+    console.error("❌ Network error calling OpenRouter API:", fetchError);
+    return NextResponse.json({ 
+      summary: "", 
+      intent: "other", 
+      error: "Network error: " + (fetchError instanceof Error ? fetchError.message : "Unknown error")
+    }, { status: 500 });
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unable to read error response");
+    console.error("❌ OpenRouter API error:", response.status, errorText);
+    
+    let errorData;
+    try {
+      errorData = JSON.parse(errorText);
+    } catch {
+      errorData = { error: errorText };
+    }
+    
+    // If model not found (404), suggest alternative models
+    if (response.status === 404 && errorData.error?.message?.includes("No endpoints found")) {
+      console.warn("⚠️ Model not found, trying alternative free model...");
+      
+      // Try alternative free model
+      const alternativeModel = model.includes("llama") 
+        ? "google/gemini-flash-1.5:free"
+        : "meta-llama/llama-3.2-3b-instruct:free";
+      
+      console.log("🔄 Retrying with model:", alternativeModel);
+      
+      try {
+        const retryResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`,
+            "HTTP-Referer": process.env.NEXTAUTH_URL || "http://localhost:3000",
+            "X-Title": "EmailIntentSummarizer"
+          },
+          body: JSON.stringify({
+            model: alternativeModel,
+            messages: [
+              { role: "system", content: "You are an expert email classification assistant. Always respond with valid JSON only." },
+              { role: "user", content: prompt },
+            ],
+            max_tokens: 400,
+            temperature: 0.1
+          })
+        });
+        
+        if (retryResponse.ok) {
+          const retryData = await retryResponse.json();
+          // Process retry response (will continue below)
+          const retryContent = retryData?.choices?.[0]?.message?.content?.trim() || "";
+          
+          if (retryContent) {
+            console.log("✅ Alternative model worked! Using:", alternativeModel);
+            // Parse and return the retry response
+            try {
+              const jsonMatch = retryContent.match(/\{[\s\S]*?"summary"[\s\S]*?"intent"[\s\S]*?\}/);
+              if (jsonMatch) {
+                const obj = JSON.parse(jsonMatch[0]);
+                return NextResponse.json({ 
+                  summary: obj.summary || "", 
+                  intent: obj.intent?.toLowerCase() || "other" 
+                });
+              }
+            } catch (e) {
+              // Fall through to error
+            }
+          }
+        }
+      } catch (retryError) {
+        console.error("❌ Retry with alternative model also failed:", retryError);
+      }
+    }
+    
+    return NextResponse.json({ 
+      summary: "", 
+      intent: "other", 
+      error: `OpenRouter API error (${response.status}): ${errorData.error?.message || errorData.error || errorText}`,
+      suggestion: response.status === 404 ? "Try updating OPENROUTER_MODEL in .env.local to a different free model" : undefined
+    }, { status: response.status });
+  }
 
   const data = await response.json();
+  console.log("📥 OpenRouter API response received");
 
   // --- Robustly check for valid content ---
   let content = "";
   if (
     data &&
     Array.isArray(data.choices) &&
+    data.choices.length > 0 &&
     data.choices[0] &&
     data.choices[0].message &&
     typeof data.choices[0].message.content === "string"
   ) {
     content = data.choices[0].message.content.trim();
+    console.log("✅ Received content from OpenRouter (length:", content.length, ")");
   } else {
-    console.error("OpenRouter returned invalid or empty choices:", data);
-    return NextResponse.json({ summary: "", intent: "", error: "OpenRouter returned no completions." }, { status: 200 });
+    console.error("❌ OpenRouter returned invalid or empty choices:", JSON.stringify(data, null, 2));
+    return NextResponse.json({ 
+      summary: "", 
+      intent: "other", 
+      error: "OpenRouter returned no completions. Response structure: " + JSON.stringify(data).substring(0, 200)
+    }, { status: 200 });
   }
 
   let summary = "";
@@ -100,9 +211,16 @@ ${text}`;
       intent = obj.intent || "";
     }
   } catch (e) {
-    console.error("JSON parsing error:", e, "Content was:", content);
+    console.error("❌ JSON parsing error:", e);
+    console.error("Content was:", content.substring(0, 500));
     summary = "";
-    intent = "";
+    intent = "other";
+  }
+
+  if (!summary && !intent) {
+    console.warn("⚠️ No summary or intent extracted. Content:", content.substring(0, 200));
+  } else {
+    console.log("✅ Successfully extracted summary and intent:", { summary: summary.substring(0, 50) + "...", intent });
   }
 
   return NextResponse.json({ summary, intent });
