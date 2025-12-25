@@ -6,7 +6,9 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "remove-logs": "node scripts/remove-console-logs.js",
+    "build:prod": "npm run remove-logs && next build"
   },
   "dependencies": {
     "@auth/mongodb-adapter": "^3.10.0",

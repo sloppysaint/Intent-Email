@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   let text = "";
@@ -14,14 +15,14 @@ export async function POST(req: NextRequest) {
 
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    console.error("❌ OPENROUTER_API_KEY is not set in environment variables");
+    logger.error("OPENROUTER_API_KEY is not set in environment variables");
     return NextResponse.json({ 
       error: "No OpenRouter API key", 
       details: "Please set OPENROUTER_API_KEY in your .env.local file" 
     }, { status: 500 });
   }
   
-  console.log("✅ OpenRouter API key found (length:", apiKey.length, ")");
+  logger.debug("OpenRouter API key found", { length: apiKey.length });
 
   const prompt = `
 You are an email classification assistant. Analyze the following email and provide:
@@ -59,9 +60,7 @@ ${text}`;
   // 3. microsoft/phi-3-mini-128k-instruct:free - Backup option
   const model = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.2-3b-instruct:free";
   
-  console.log("📤 Sending request to OpenRouter API...");
-  console.log("Model:", model);
-  console.log("Text length:", text.length);
+  logger.debug("Sending request to OpenRouter API", { model, textLength: text.length });
   
   let response;
   try {
@@ -84,7 +83,7 @@ ${text}`;
       })
     });
   } catch (fetchError) {
-    console.error("❌ Network error calling OpenRouter API:", fetchError);
+    logger.error("Network error calling OpenRouter API", fetchError);
     return NextResponse.json({ 
       summary: "", 
       intent: "other", 
@@ -94,7 +93,7 @@ ${text}`;
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unable to read error response");
-    console.error("❌ OpenRouter API error:", response.status, errorText);
+    logger.error("OpenRouter API error", { status: response.status, error: errorText });
     
     let errorData;
     try {
@@ -105,14 +104,14 @@ ${text}`;
     
     // If model not found (404), suggest alternative models
     if (response.status === 404 && errorData.error?.message?.includes("No endpoints found")) {
-      console.warn("⚠️ Model not found, trying alternative free model...");
+      logger.warn("Model not found, trying alternative free model");
       
       // Try alternative free model
       const alternativeModel = model.includes("llama") 
         ? "google/gemini-flash-1.5:free"
         : "meta-llama/llama-3.2-3b-instruct:free";
       
-      console.log("🔄 Retrying with model:", alternativeModel);
+      logger.debug("Retrying with model", { alternativeModel });
       
       try {
         const retryResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -140,7 +139,7 @@ ${text}`;
           const retryContent = retryData?.choices?.[0]?.message?.content?.trim() || "";
           
           if (retryContent) {
-            console.log("✅ Alternative model worked! Using:", alternativeModel);
+            logger.debug("Alternative model worked", { model: alternativeModel });
             // Parse and return the retry response
             try {
               const jsonMatch = retryContent.match(/\{[\s\S]*?"summary"[\s\S]*?"intent"[\s\S]*?\}/);
@@ -157,7 +156,7 @@ ${text}`;
           }
         }
       } catch (retryError) {
-        console.error("❌ Retry with alternative model also failed:", retryError);
+        logger.error("Retry with alternative model also failed", retryError);
       }
     }
     
@@ -170,7 +169,7 @@ ${text}`;
   }
 
   const data = await response.json();
-  console.log("📥 OpenRouter API response received");
+  logger.debug("OpenRouter API response received");
 
   // --- Robustly check for valid content ---
   let content = "";
@@ -183,9 +182,9 @@ ${text}`;
     typeof data.choices[0].message.content === "string"
   ) {
     content = data.choices[0].message.content.trim();
-    console.log("✅ Received content from OpenRouter (length:", content.length, ")");
+    logger.debug("Received content from OpenRouter", { length: content.length });
   } else {
-    console.error("❌ OpenRouter returned invalid or empty choices:", JSON.stringify(data, null, 2));
+    logger.error("OpenRouter returned invalid or empty choices", data);
     return NextResponse.json({ 
       summary: "", 
       intent: "other", 
@@ -211,16 +210,15 @@ ${text}`;
       intent = obj.intent || "";
     }
   } catch (e) {
-    console.error("❌ JSON parsing error:", e);
-    console.error("Content was:", content.substring(0, 500));
+    logger.error("JSON parsing error", { error: e, contentPreview: content.substring(0, 500) });
     summary = "";
     intent = "other";
   }
 
   if (!summary && !intent) {
-    console.warn("⚠️ No summary or intent extracted. Content:", content.substring(0, 200));
+    logger.warn("No summary or intent extracted", { contentPreview: content.substring(0, 200) });
   } else {
-    console.log("✅ Successfully extracted summary and intent:", { summary: summary.substring(0, 50) + "...", intent });
+    logger.debug("Successfully extracted summary and intent", { summary: summary.substring(0, 50) + "...", intent });
   }
 
   return NextResponse.json({ summary, intent });

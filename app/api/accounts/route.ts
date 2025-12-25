@@ -4,6 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { AccountModel } from "@/models/Account";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
+import { logger } from "@/lib/logger";
 
 // Get all accounts for the current user
 export async function GET(req: NextRequest) {
@@ -11,12 +12,12 @@ export async function GET(req: NextRequest) {
     const session = await getServerSession(authOptions);
     
     if (!session) {
-      console.error("No session found in GET /api/accounts");
+      logger.error("No session found in GET /api/accounts");
       return NextResponse.json({ error: "Unauthorized - No session" }, { status: 401 });
     }
     
     if (!session.userId) {
-      console.error("Session found but no userId:", { 
+      logger.error("Session found but no userId", { 
         sessionKeys: Object.keys(session),
         email: (session as any).email 
       });
@@ -29,11 +30,11 @@ export async function GET(req: NextRequest) {
       userId: session.userId 
     }).sort({ updatedAt: -1 });
     
-    console.log(`Found ${accounts.length} accounts for userId: ${session.userId}`);
+    logger.debug(`Found ${accounts.length} accounts for userId: ${session.userId}`);
     
     return NextResponse.json(accounts);
   } catch (error) {
-    console.error("Error fetching accounts:", error);
+    logger.error("Error fetching accounts", error);
     return NextResponse.json(
       { error: "Failed to fetch accounts", details: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(account, { status: 201 });
   } catch (error) {
-    console.error("Error saving account:", error);
+    logger.error("Error saving account", error);
     return NextResponse.json(
       { error: "Failed to save account" },
       { status: 500 }
@@ -138,7 +139,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ message: "Account deleted successfully" });
   } catch (error) {
-    console.error("Error deleting account:", error);
+    logger.error("Error deleting account", error);
     return NextResponse.json(
       { error: "Failed to delete account" },
       { status: 500 }

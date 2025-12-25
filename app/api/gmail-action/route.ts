@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectToDatabase } from "@/lib/mongodb";
 import { AccountModel } from "@/models/Account";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
 
     if (!gmailRes.ok) {
       const errText = await gmailRes.text();
-      console.error(`Gmail API error for action ${action}:`, errText);
+      logger.error(`Gmail API error for action ${action}`, { error: errText, status: gmailRes.status });
       
       // Handle specific Gmail API errors
       if (gmailRes.status === 401) {
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (err) {
-    console.error("Gmail action error:", err);
+    logger.error("Gmail action error", err);
     return NextResponse.json({ 
       error: "Server error", 
       details: err instanceof Error ? err.message : "Unknown error"

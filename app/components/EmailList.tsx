@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MailOpen, Clock, Star, Archive, Trash2, Mail, MailOpen as MailOpenIcon, Zap } from "lucide-react";
 import { decodeHTML, extractSender } from "@/utils/emailUtils";
 import { getTagColor, getIntentIcon } from "@/utils/intentUtils";
+import { clientLogger } from "@/lib/logger";
 
 // Accepts currentAccount as prop!
 export function EmailList({ emails, loading, currentAccount, onAction }) {
@@ -56,7 +57,7 @@ export function EmailList({ emails, loading, currentAccount, onAction }) {
       setError(null);
 
     } catch (err) {
-      console.error(`Failed to ${action} email:`, err);
+      clientLogger.error(`Failed to ${action} email`, err);
       const errorMessage = err instanceof Error ? err.message : "Action failed";
       setError(`Failed to ${action}: ${errorMessage}`);
     } finally {

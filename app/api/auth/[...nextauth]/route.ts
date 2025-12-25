@@ -2,6 +2,7 @@ import NextAuth, { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { connectToDatabase } from "@/lib/mongodb";
 import { AccountModel } from "@/models/Account";
+import { logger } from "@/lib/logger";
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -107,7 +108,7 @@ export const authOptions: NextAuthOptions = {
           token.processed = true;
           
         } catch (error) {
-          console.error("Error saving account:", error);
+          logger.error("Error saving account", error);
           token.error = "account_save_error";
         }
       } else if (!token.userId && token.sub) {
@@ -130,10 +131,10 @@ export const authOptions: NextAuthOptions = {
             token.userId = token.sub;
           }
         } catch (error) {
-          console.error("Error loading userId for existing session:", error);
+          logger.error("Error loading userId for existing session", error);
           // Fallback: use sub as userId if database connection fails
           if (token.sub && !token.userId) {
-            console.warn("Using token.sub as fallback userId due to DB connection error");
+            logger.warn("Using token.sub as fallback userId due to DB connection error");
             token.userId = token.sub;
           }
         }

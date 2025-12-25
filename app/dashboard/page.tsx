@@ -13,6 +13,7 @@ import { HeaderActions } from "../components/HeaderActions";
 import { EmailList } from "../components/EmailList";
 import IntentFilterDropdown from "../components/IntentFilterDropdown";
 import { getEmailBody } from "@/utils/emailUtils";
+import { clientLogger } from "@/lib/logger";
 
 // Extend Session type to include custom properties
 interface ExtendedSession {
@@ -70,12 +71,12 @@ export default function DashboardPage() {
   // Loads all linked accounts
   const loadAccounts = async () => {
     if (!extendedSession) {
-      console.log("No session available for loadAccounts");
+      clientLogger.debug("No session available for loadAccounts");
       return;
     }
     
     if (!extendedSession.userId) {
-      console.error("Session exists but no userId:", { 
+      clientLogger.error("Session exists but no userId", { 
         sessionKeys: Object.keys(extendedSession),
         email: extendedSession.email 
       });
@@ -83,20 +84,20 @@ export default function DashboardPage() {
     }
     
     try {
-      console.log("Loading accounts for userId:", extendedSession.userId);
+      clientLogger.debug("Loading accounts for userId", { userId: extendedSession.userId });
       const res = await fetch(`/api/accounts`);
       
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        console.error("Failed to load accounts:", res.status, errorData);
+        clientLogger.error("Failed to load accounts", { status: res.status, error: errorData });
         return;
       }
       
       const list: Account[] = await res.json();
-      console.log(`Loaded ${list.length} accounts`);
+      clientLogger.debug(`Loaded ${list.length} accounts`);
       setAccounts(list);
     } catch (error) {
-      console.error("Failed to load accounts:", error);
+      clientLogger.error("Failed to load accounts", error);
     }
   };
 
@@ -156,8 +157,8 @@ export default function DashboardPage() {
         
         // Handle invalid_grant - refresh token revoked
         if (errorData.error === "invalid_grant" || errorData.requiresReauth) {
-          console.warn("Refresh token invalid for account:", acc.email);
-          console.warn("User needs to re-authenticate. Removing account from list.");
+          clientLogger.warn("Refresh token invalid for account", { email: acc.email });
+          clientLogger.warn("User needs to re-authenticate. Removing account from list.");
           
           // Remove the account that needs re-authentication
           const remaining = accounts.filter((a) => a._id !== acc._id);
@@ -174,11 +175,11 @@ export default function DashboardPage() {
           return null;
         }
         
-        console.error("Token refresh failed:", errorData);
+        clientLogger.error("Token refresh failed", errorData);
         return null;
       }
     } catch (error) {
-      console.error("Token refresh failed:", error);
+      clientLogger.error("Token refresh failed", error);
       return null;
     }
   };
@@ -203,7 +204,7 @@ export default function DashboardPage() {
     try {
       let token = await getValidAccessToken(currentAccount);
       if (!token) {
-        console.error("No valid access token available");
+        clientLogger.error("No valid access token available");
         setEmails([]);
         return;
       }
@@ -217,7 +218,7 @@ export default function DashboardPage() {
 
       // Handle 401 Unauthorized - token might be invalid, try refreshing
       if (res.status === 401) {
-        console.warn("Gmail API returned 401 - attempting token refresh");
+        clientLogger.warn("Gmail API returned 401 - attempting token refresh");
         const newToken = await getValidAccessToken(currentAccount);
         if (newToken && newToken !== token) {
           token = newToken; // Update token for subsequent requests
@@ -252,7 +253,7 @@ export default function DashboardPage() {
           );
 
           if (!mr.ok) {
-            console.error(`Failed to fetch message ${m.id}`);
+            clientLogger.error(`Failed to fetch message ${m.id}`);
             return null;
           }
 
@@ -268,7 +269,7 @@ export default function DashboardPage() {
 
           try {
             if (!body || body.trim().length === 0) {
-              console.warn("Skipping AI summarization - empty email body");
+              clientLogger.warn("Skipping AI summarization - empty email body");
               summary = "No content available";
               intent = "other";
             } else {
@@ -284,15 +285,15 @@ export default function DashboardPage() {
                 intent = aij.intent?.toLowerCase() || "other";
                 
                 if (aij.error) {
-                  console.warn("OpenRouter API returned error:", aij.error);
+                  clientLogger.warn("OpenRouter API returned error", { error: aij.error });
                 }
               } else {
                 const errorData = await ai.json().catch(() => ({ error: "Unknown error" }));
-                console.error("AI summarization API error:", ai.status, errorData);
+                clientLogger.error("AI summarization API error", { status: ai.status, error: errorData });
               }
             }
           } catch (aiError) {
-            console.error("AI summarization failed:", aiError);
+            clientLogger.error("AI summarization failed", aiError);
           }
 
           return {
@@ -305,7 +306,7 @@ export default function DashboardPage() {
             unread: md.labelIds?.includes("UNREAD") || false,
           };
         } catch (error) {
-          console.error(`Error processing message ${m.id}:`, error);
+          clientLogger.error(`Error processing message ${m.id}`, error);
           return null;
         }
       });
@@ -317,7 +318,7 @@ export default function DashboardPage() {
       setLastFetchTime(now); // update state for debug/info/UI
       lastFetchTimeRef.current = now; // <<< CHANGE: update ref for next cooldown check
     } catch (error) {
-      console.error("Failed to fetch emails:", error);
+      clientLogger.error("Failed to fetch emails", error);
       setEmails([]);
     } finally {
       setLoading(false);
@@ -362,7 +363,7 @@ export default function DashboardPage() {
         callbackUrl: window.location.href,
       });
     } catch (error) {
-      console.error("Failed to add account:", error);
+      clientLogger.error("Failed to add account", error);
     } finally {
       setIsAddingAccount(false);
     }
@@ -392,10 +393,10 @@ export default function DashboardPage() {
         setAccounts(remaining);
       } else {
         const errorData = await res.json().catch(() => ({}));
-        console.error("Failed to remove account:", res.status, errorData);
+        clientLogger.error("Failed to remove account", { status: res.status, error: errorData });
       }
     } catch (error) {
-      console.error("Failed to remove account:", error);
+      clientLogger.error("Failed to remove account", error);
     }
   };
 

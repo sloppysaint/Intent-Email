@@ -4,6 +4,7 @@ import { signIn, useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Loader2, Shield, Zap, Users, ArrowRight } from "lucide-react";
 import { useEffect, useState } from "react";
+import { clientLogger } from "@/lib/logger";
 
 export default function SignInCard() {
   const { data: session, status } = useSession();
@@ -22,7 +23,7 @@ export default function SignInCard() {
     try {
       await signIn("google");
     } catch (error) {
-      console.error("Sign in error:", error);
+      clientLogger.error("Sign in error", error);
     } finally {
       setIsLoading(false);
     }

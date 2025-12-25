@@ -1,4 +1,6 @@
 // utils/tokenUtils.ts
+import { clientLogger } from "@/lib/logger";
+
 interface Account {
   _id: string;
   userId: string;
@@ -31,14 +33,14 @@ export async function refreshGoogleToken(refreshToken: string): Promise<{
     });
 
     if (!response.ok) {
-      console.error("Token refresh failed:", response.status, response.statusText);
+      clientLogger.error("Token refresh failed", { status: response.status, statusText: response.statusText });
       return null;
     }
 
     const tokenData = await response.json();
     return tokenData;
   } catch (error) {
-    console.error("Error refreshing token:", error);
+    clientLogger.error("Error refreshing token", error);
     return null;
   }
 }
@@ -70,7 +72,7 @@ export async function getValidAccessToken(account: Account): Promise<string | nu
           body: JSON.stringify(updatedAccount),
         });
       } catch (error) {
-        console.error("Failed to save updated token:", error);
+        clientLogger.error("Failed to save updated token", error);
       }
 
       return newTokenData.access_token;

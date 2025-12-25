@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { logger } from "./logger";
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -11,8 +12,8 @@ if (!MONGODB_URI) {
 
 // Validate connection string format
 if (!MONGODB_URI.startsWith("mongodb://") && !MONGODB_URI.startsWith("mongodb+srv://")) {
-  console.warn(
-    "⚠️  MONGODB_URI should start with 'mongodb://' or 'mongodb+srv://'\n" +
+  logger.warn(
+    "MONGODB_URI should start with 'mongodb://' or 'mongodb+srv://'. " +
     "Current value starts with: " + MONGODB_URI.substring(0, 20) + "..."
   );
 }
@@ -42,20 +43,15 @@ export async function connectToDatabase() {
     cached.promise = mongoose
       .connect(MONGODB_URI, opts)
       .then((mongoose) => {
-        console.log("✅ MongoDB connected successfully");
+        logger.info("MongoDB connected successfully");
         return mongoose;
       })
       .catch((error) => {
-        console.error("❌ MongoDB connection error:", error.message);
+        logger.error("MongoDB connection error", { message: error.message });
         
         // Provide helpful error messages
         if (error.message.includes("ENOTFOUND") || error.message.includes("querySrv")) {
-          console.error("\n🔍 DNS Resolution Error Detected!");
-          console.error("Possible causes:");
-          console.error("1. MongoDB Atlas cluster might be paused - check your Atlas dashboard");
-          console.error("2. Connection string format might be incorrect");
-          console.error("3. Network/DNS issues");
-          console.error("\n📖 See MONGODB_TROUBLESHOOTING.md for detailed help");
+          logger.error("DNS Resolution Error Detected. Possible causes: MongoDB Atlas cluster might be paused, connection string format might be incorrect, or network/DNS issues. See MONGODB_TROUBLESHOOTING.md for detailed help");
         }
         
         cached.promise = null; // Reset promise on error so we can retry

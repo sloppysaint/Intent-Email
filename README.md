@@ -91,6 +91,8 @@
    
    # AI API
    OPENROUTER_API_KEY=your-openrouter-api-key
+   # Optional: Specify a different model (default: meta-llama/llama-3.2-3b-instruct:free)
+   # OPENROUTER_MODEL=google/gemini-flash-1.5:free
    ```
 
 4. **Set up Google OAuth:**

@@ -4,6 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { AccountModel } from "@/models/Account";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../auth/[...nextauth]/route";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Token refresh failed:", errorData);
+      logger.error("Token refresh failed", errorData);
       
       // Handle invalid_grant error (refresh token revoked or expired)
       if (errorData.error === "invalid_grant") {
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
     });
 
   } catch (error) {
-    console.error("Refresh token error:", error);
+    logger.error("Refresh token error", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }
